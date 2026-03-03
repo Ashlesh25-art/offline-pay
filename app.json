@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Offline Pay",
+    "slug": "offline-pay",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "offlinepay",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/icon.png",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#16a34a"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "android": {
+      "package": "com.ashlesh.offlinepay",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#16a34a"
+      },
+      "permissions": [
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Offline Pay to access your camera to scan QR codes."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "011c1998-23a4-4110-8332-7785c719ff27"
+      }
+    },
+    "owner": "ashleshs"
+  }
+}
