@@ -5,4 +5,3 @@ android/
 ios/
 *.log
 offline-pay-backend/
-offline-pay-backend/node_modules/
