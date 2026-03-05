@@ -53,3 +53,27 @@ export async function signPayloadHex(payloadObj: object) {
 export async function hashSha256Hex(message: string) {
   return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, message);
 }
+
+/**
+ * Verify an ECDSA signature for a voucher payload — works fully OFFLINE.
+ * The merchant uses this to confirm the voucher was signed by the user's private key.
+ *
+ * @param payload   - The exact object that was signed (voucherId, merchantId, amount, createdAt, issuedTo)
+ * @param signatureHex - DER-encoded hex signature from the voucher
+ * @param publicKeyHex - User's public key embedded in the voucher
+ * @returns true if valid, false if tampered or invalid
+ */
+export async function verifyVoucherSignature(
+  payload: object,
+  signatureHex: string,
+  publicKeyHex: string
+): Promise<boolean> {
+  try {
+    const payloadStr = JSON.stringify(payload);
+    const msgHashHex = await hashSha256Hex(payloadStr);
+    const key = ec.keyFromPublic(publicKeyHex, "hex");
+    return key.verify(msgHashHex, signatureHex);
+  } catch {
+    return false;
+  }
+}

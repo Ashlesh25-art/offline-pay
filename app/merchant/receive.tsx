@@ -133,6 +133,18 @@ export default function MerchantReceiveScreen() {
         return;
       }
 
+      // ── Double-spend protection ──────────────────────────────────────────────
+      // Check if this voucherId was already redeemed by this merchant device
+      const existingRaw = await AsyncStorage.getItem("@offline_vouchers");
+      const existingVouchers: Voucher[] = existingRaw ? JSON.parse(existingRaw) : [];
+      if (existingVouchers.find((x) => x.voucherId === parsed.voucherId)) {
+        setErrorMsg(
+          `This voucher has already been redeemed.\n\nVoucher ID: ...${parsed.voucherId.slice(-12)}\n\nDouble-spending is not allowed.`
+        );
+        setScreenState("error");
+        return;
+      }
+
       if (!parsed.publicKeyHex) {
         setErrorMsg("Voucher is missing the public key — cannot verify signature.");
         setScreenState("error");

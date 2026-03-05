@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import { API_BASE_URL } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, syncOfflineTransactions } from "../../lib/api";
 import { ensureUserKeypairAndId } from "../../lib/cryptoKeys";
 import { registerPublicKeyIfNeeded } from "../../lib/registerKey";
 
@@ -42,6 +42,7 @@ export default function UserWalletScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [recentTxns, setRecentTxns] = useState<Transaction[]>([]);
   const [userName, setUserName] = useState("User");
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -60,18 +61,31 @@ export default function UserWalletScreen() {
       setLoadingBalance(true);
       const token = await AsyncStorage.getItem("@auth_token");
       if (!token) { setBalance(0); setLoadingBalance(false); return; }
+
       const response = await fetch(`${API_BASE_URL}/api/balance`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
+
       if (response.ok) {
         const data = await response.json();
         setBalance(data.balance);
+        setIsOffline(false);
+        // Cache the latest balance locally for offline use
+        await saveLocalBalance(data.balance);
+        // Opportunistically sync any queued offline transactions
+        await syncOfflineTransactions(token).catch(() => {});
       } else {
-        setBalance(0);
+        // Backend returned error — fall back to cached balance
+        const cached = await getLocalBalance();
+        setBalance(cached ?? 0);
+        setIsOffline(cached !== null);
       }
     } catch {
-      setBalance(0);
+      // No network — show last known balance from local cache
+      const cached = await getLocalBalance();
+      setBalance(cached ?? 0);
+      setIsOffline(true);
     } finally {
       setLoadingBalance(false);
     }
@@ -117,6 +131,9 @@ export default function UserWalletScreen() {
       const data = await response.json();
       if (response.ok) {
         setBalance(data.balance);
+        setIsOffline(false);
+        // Update local cache with new balance
+        await saveLocalBalance(data.balance);
         setAddAmount("");
         setError(null);
         setShowAddModal(false);
@@ -126,7 +143,7 @@ export default function UserWalletScreen() {
         setError(data.error || "Failed to add balance");
       }
     } catch {
-      setError("Connection error. Please try again.");
+      setError("No internet connection. Please try again when online.");
     } finally {
       setLoading(false);
     }
@@ -177,15 +194,17 @@ export default function UserWalletScreen() {
         {/* ── BALANCE CARD ── */}
         <View style={styles.balanceCard}>
           <LinearGradient colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.08)"]} style={styles.balanceCardInner}>
-            <Text style={styles.balanceLabel}>Offline Balance</Text>
+            <Text style={styles.balanceLabel}>Wallet Balance</Text>
             {loadingBalance ? (
               <ActivityIndicator color="#fff" size="large" style={{ marginVertical: 12 }} />
             ) : (
               <Text style={styles.balanceAmount}>₹{balance ?? 0}</Text>
             )}
             <View style={styles.balanceRow}>
-              <View style={styles.balancePill}>
-                <Text style={styles.balancePillText}>🔒 Offline Wallet</Text>
+              <View style={[styles.balancePill, isOffline && styles.balancePillOffline]}>
+                <Text style={styles.balancePillText}>
+                  {isOffline ? "📵 Offline Cache" : "🔒 Offline Wallet"}
+                </Text>
               </View>
               <Pressable
                 style={styles.addBtn}
@@ -403,6 +422,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
+  },
+  balancePillOffline: {
+    backgroundColor: "rgba(251,191,36,0.35)",
   },
   balancePillText: { fontSize: 12, color: "#fff", fontWeight: "600" },
   addBtn: { backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },

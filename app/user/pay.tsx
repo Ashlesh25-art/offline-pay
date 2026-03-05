@@ -15,7 +15,7 @@ import QRCode from "react-native-qrcode-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { getUserId, signPayloadHex, ensureUserKeypairAndId, getPublicKeyHex } from "../../lib/cryptoKeys";
-import { API_BASE_URL } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction } from "../../lib/api";
 
 type MerchantInfo = {
   merchantId: string;
@@ -43,6 +43,7 @@ export default function UserPayScreen() {
   const [balance, setBalance] = useState<number | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
 
   // Initialize user keypair on screen load
   useEffect(() => {
@@ -51,36 +52,43 @@ export default function UserPayScreen() {
     })();
   }, []);
 
-  // Load current balance from backend
+  // Load current balance — online from backend, offline from local cache
   const loadBalance = useCallback(async () => {
     try {
       setLoadingBalance(true);
       const token = await AsyncStorage.getItem('@auth_token');
-      
-      if (!token) {
-        setBalance(0);
-        setLoadingBalance(false);
-        return;
-      }
 
+      if (!token) { setBalance(0); setLoadingBalance(false); return; }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const response = await fetch(`${API_BASE_URL}/api/balance`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
         setBalance(data.balance);
+        setIsOffline(false);
+        // Always keep local cache up-to-date
+        await saveLocalBalance(data.balance);
       } else {
-        console.error('Failed to load balance');
-        setBalance(0);
+        // Backend error — use cached balance
+        const cached = await getLocalBalance();
+        setBalance(cached ?? 0);
+        setIsOffline(cached !== null);
       }
-    } catch (e) {
-      console.log("Error reading balance", e);
-      setBalance(0);
+    } catch {
+      // No network — use cached balance so user can still pay offline
+      const cached = await getLocalBalance();
+      setBalance(cached ?? 0);
+      setIsOffline(true);
     } finally {
       setLoadingBalance(false);
     }
@@ -162,10 +170,14 @@ export default function UserPayScreen() {
         publicKeyHex, // included so merchant can verify offline
       };
 
-      // Deduct balance from backend
+      // ── Deduct balance: try backend first, fall back to offline ──
       const token = await AsyncStorage.getItem('@auth_token');
+      let usedOfflinePath = false;
+
       if (token) {
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
           const response = await fetch(`${API_BASE_URL}/api/balance/deduct`, {
             method: 'POST',
             headers: { 
@@ -176,24 +188,46 @@ export default function UserPayScreen() {
               amount: amt,
               merchantId: merchant.merchantId,
               voucherId: payload.voucherId
-            })
+            }),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (response.ok) {
             const data = await response.json();
             setBalance(data.balance);
-            console.log(`✅ Payment successful! New balance: ₹${data.balance}`);
+            setIsOffline(false);
+            // Keep local cache in sync with server
+            await saveLocalBalance(data.balance);
           } else {
             const errorData = await response.json();
-            console.error('Failed to deduct balance:', errorData);
             setError(errorData.error || 'Payment failed');
             return;
           }
-        } catch (apiError) {
-          console.error('API error:', apiError);
-          setError('Failed to process payment. Please try again.');
-          return;
+        } catch {
+          // Network unreachable — use offline path
+          usedOfflinePath = true;
         }
+      } else {
+        usedOfflinePath = true;
+      }
+
+      // ── Offline path: deduct locally & queue for sync ──────────
+      if (usedOfflinePath) {
+        const newBalance = await deductLocalBalance(amt);
+        setBalance(newBalance);
+        setIsOffline(true);
+        // Store transaction — will sync to backend when internet returns
+        await queueOfflineTransaction({
+          voucherId: payload.voucherId,
+          userId: userId!,
+          merchantId: merchant.merchantId,
+          amount: amt,
+          timestamp: payload.createdAt,
+          signature: signatureHex,
+          publicKeyHex: publicKeyHex!,
+          status: "pending",
+        });
       }
 
       setVoucher(newVoucher);
@@ -230,6 +264,9 @@ export default function UserPayScreen() {
             <ActivityIndicator color="#667eea" size="small" style={{marginTop: 8}} />
           ) : (
             <Text style={styles.balanceAmount}>₹{balance ?? 0}</Text>
+          )}
+          {isOffline && (
+            <Text style={styles.offlineBadge}>📵 Offline — cached balance</Text>
           )}
         </View>
 
@@ -355,7 +392,9 @@ export default function UserPayScreen() {
               </View>
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Status:</Text>
-                <Text style={styles.statusOffline}>🔴 Offline</Text>
+                <Text style={isOffline ? styles.statusOffline : styles.statusOnline}>
+                  {isOffline ? "📵 Offline (will sync)" : "🟢 Online"}
+                </Text>
               </View>
             </View>
 
@@ -673,6 +712,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
+  },
+  statusOnline: {
+    fontSize: 12,
+    color: '#276749',
+    fontWeight: '600',
+    backgroundColor: '#c6f6d5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  offlineBadge: {
+    fontSize: 11,
+    color: '#b7791f',
+    fontWeight: '600',
+    marginTop: 4,
   },
   instructionText: {
     fontSize: 14,
