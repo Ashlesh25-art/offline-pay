@@ -1,4 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  notifyPaymentConfirmed,
+  notifyVoucherSynced,
+} from "./notifications";
 
 // ✅ Production backend URL — do NOT use localhost or 192.168.x.x here
 export const API_BASE_URL = "https://offline-pay-backend-sau2.onrender.com";
@@ -180,6 +184,11 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
           // (Duplicate = merchant already stored this voucher = they actually received payment)
           if (alreadySynced.has(txn.voucherId)) {
             await markVoucherUsed(txn.voucherId);
+            // 🔔 Notify user: payment confirmed by merchant
+            await notifyPaymentConfirmed(txn.amount);
+          } else if (syncedNow.has(txn.voucherId)) {
+            // 🔔 Voucher backed up but merchant hasn't scanned yet
+            await notifyVoucherSynced(txn.amount);
           }
         }
       }

@@ -19,6 +19,7 @@ import * as Crypto from "expo-crypto";
 // @ts-ignore
 import pkg from "elliptic";
 import { API_BASE_URL } from "../../lib/api";
+import { notifyMerchantReceivedPayment } from "../../lib/notifications";
 const { ec: EC } = pkg;
 const ec = new EC("secp256k1");
 
@@ -197,6 +198,8 @@ export default function MerchantReceiveScreen() {
       const didSync = await trySyncToBackend(accepted, merchantId);
       setSynced(didSync);
       setScreenState("success");
+      // 🔔 Notify merchant about the new payment
+      await notifyMerchantReceivedPayment(accepted.amount);
     } catch (e) {
       console.log("processVoucher error:", e);
       setErrorMsg("Could not read QR code. Make sure it is a valid payment voucher.");

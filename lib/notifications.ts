@@ -1,0 +1,92 @@
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+
+// ─── Configure how notifications appear when app is in foreground ────────────
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// ─── Request permission (call once at app startup) ───────────────────────────
+export async function requestNotificationPermission(): Promise<boolean> {
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  if (existingStatus === 'granted') return true;
+
+  const { status } = await Notifications.requestPermissionsAsync();
+  if (status !== 'granted') return false;
+
+  // Android 8+ requires a notification channel
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('offline-pay', {
+      name: 'Offline Pay Alerts',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#16a34a',
+      sound: 'default',
+    });
+  }
+  return true;
+}
+
+// ─── Send a local notification ───────────────────────────────────────────────
+export async function sendNotification(
+  title: string,
+  body: string,
+  data?: Record<string, any>
+): Promise<void> {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data: data ?? {},
+        sound: 'default',
+        ...(Platform.OS === 'android' && { channelId: 'offline-pay' }),
+      },
+      trigger: null, // fire immediately
+    });
+  } catch {
+    // Silently ignore if permissions not granted
+  }
+}
+
+// ─── Pre-built notification helpers ──────────────────────────────────────────
+
+/** User: payment confirmed by merchant after sync */
+export async function notifyPaymentConfirmed(amount: number, merchantName?: string): Promise<void> {
+  const merchant = merchantName ? ` to ${merchantName}` : '';
+  await sendNotification(
+    '✅ Payment Confirmed',
+    `Your ₹${amount} payment${merchant} has been confirmed by the merchant.`
+  );
+}
+
+/** User: voucher backed up to server (pending merchant scan) */
+export async function notifyVoucherSynced(amount: number): Promise<void> {
+  await sendNotification(
+    '💾 Payment Backed Up',
+    `₹${amount} voucher is backed up. Show the QR to the merchant to complete payment.`
+  );
+}
+
+/** Merchant: new payment received offline */
+export async function notifyMerchantReceivedPayment(amount: number, payerName?: string): Promise<void> {
+  const payer = payerName ? ` from ${payerName}` : '';
+  await sendNotification(
+    '💰 Payment Received',
+    `You received ₹${amount}${payer}. Sync when online to confirm.`
+  );
+}
+
+/** Merchant: sync completed successfully */
+export async function notifyMerchantSyncDone(count: number): Promise<void> {
+  await sendNotification(
+    '✅ Sync Complete',
+    `${count} payment${count > 1 ? 's' : ''} successfully synced to the server.`
+  );
+}

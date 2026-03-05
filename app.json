@@ -29,7 +29,10 @@
         "backgroundColor": "#16a34a"
       },
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
@@ -40,7 +43,16 @@
           "cameraPermission": "Allow Offline Pay to access your camera to scan QR codes."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-foreground.png",
+          "color": "#16a34a",
+          "defaultChannel": "offline-pay",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

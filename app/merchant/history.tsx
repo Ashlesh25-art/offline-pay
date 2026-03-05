@@ -15,6 +15,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE_URL } from "../../lib/api";
+import { notifyMerchantSyncDone } from "../../lib/notifications";
 import TransactionDetailModal from "../../components/TransactionDetailModal";
 
 type Transaction = {
@@ -171,6 +172,10 @@ export default function MerchantHistoryScreen() {
           : v
       );
       await AsyncStorage.setItem("@offline_vouchers", JSON.stringify(updated));
+      // 🔔 Notify merchant: sync done
+      if (result.syncedIds.length > 0) {
+        await notifyMerchantSyncDone(result.syncedIds.length);
+      }
       Alert.alert(
         "Sync Complete",
         `${result.syncedIds.length} voucher${result.syncedIds.length !== 1 ? "s" : ""} synced to backend${"\n"}` +

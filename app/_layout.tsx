@@ -1,7 +1,14 @@
 import "react-native-get-random-values";
+import { useEffect } from "react";
 import { Stack } from "expo-router";
+import { requestNotificationPermission } from "../lib/notifications";
 
 export default function RootLayout() {
+  // Request push notification permission once when the app opens
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
