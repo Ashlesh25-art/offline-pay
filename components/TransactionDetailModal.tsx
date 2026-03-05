@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 type TransactionDetailProps = {
   visible: boolean;
@@ -143,6 +144,45 @@ export default function TransactionDetailModal({
               </View>
             )}
           </View>
+
+          {/* Voucher QR Code */}
+          {transaction.voucherData && (
+            <View style={styles.detailsCard}>
+              <Text style={styles.cardTitle}>
+                {transaction.voucherData.used ? '✅ Payment Voucher' : '🎫 Voucher QR Code'}
+              </Text>
+              {!transaction.voucherData.used && (
+                <Text style={styles.qrSubtitle}>
+                  Show this to the merchant if they haven't scanned it yet
+                </Text>
+              )}
+              <View style={styles.qrCenter}>
+                <View style={styles.qrBox}>
+                  <QRCode
+                    value={JSON.stringify({
+                      voucherId: transaction.voucherData.voucherId,
+                      merchantId: transaction.voucherData.merchantId,
+                      amount: transaction.voucherData.amount,
+                      createdAt: transaction.voucherData.createdAt,
+                      issuedTo: transaction.voucherData.issuedTo,
+                      signature: transaction.voucherData.signature,
+                      publicKeyHex: transaction.voucherData.publicKeyHex,
+                    })}
+                    size={160}
+                    backgroundColor="#ffffff"
+                    color="#1a1a2e"
+                  />
+                </View>
+                <View style={[styles.voucherStatusBadge, transaction.voucherData.used ? styles.badgeUsed : styles.badgePending]}>
+                  <Text style={[styles.voucherStatusText, transaction.voucherData.used ? styles.textUsed : styles.textPending]}>
+                    {transaction.voucherData.used
+                      ? '✅ Merchant received this payment'
+                      : '⏳ Waiting for merchant to scan'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
 
           {/* Payment Flow */}
           <View style={styles.flowCard}>
@@ -412,4 +452,37 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginLeft: 12,
   },
+  // ── Voucher QR styles ──
+  qrSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 14,
+  },
+  qrCenter: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  qrBox: {
+    padding: 14,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  voucherStatusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 4,
+  },
+  badgeUsed: { backgroundColor: '#d1fae5' },
+  badgePending: { backgroundColor: '#fef3c7' },
+  voucherStatusText: { fontSize: 13, fontWeight: '600' },
+  textUsed: { color: '#065f46' },
+  textPending: { color: '#92400e' },
 });
