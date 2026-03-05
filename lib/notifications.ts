@@ -1,19 +1,30 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
+// expo-notifications remote push is removed from Expo Go in SDK 53+.
+// We skip all notification setup when running inside Expo Go so there are
+// no warnings during development. Everything works normally in the real APK.
+const IS_EXPO_GO = Constants.appOwnership === 'expo';
 
 // ─── Configure how notifications appear when app is in foreground ────────────
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (!IS_EXPO_GO) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 // ─── Request permission (call once at app startup) ───────────────────────────
 export async function requestNotificationPermission(): Promise<boolean> {
+  // Skip in Expo Go — push notifications are not supported there in SDK 53+
+  if (IS_EXPO_GO) return false;
+
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   if (existingStatus === 'granted') return true;
 
@@ -39,6 +50,8 @@ export async function sendNotification(
   body: string,
   data?: Record<string, any>
 ): Promise<void> {
+  // Expo Go does not support notifications in SDK 53+ — skip silently
+  if (IS_EXPO_GO) return;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
