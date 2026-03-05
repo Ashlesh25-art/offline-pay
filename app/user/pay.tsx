@@ -15,7 +15,7 @@ import QRCode from "react-native-qrcode-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { getUserId, signPayloadHex, ensureUserKeypairAndId, getPublicKeyHex } from "../../lib/cryptoKeys";
-import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction, saveGeneratedVoucher, getGeneratedVouchers, GeneratedVoucher } from "../../lib/api";
 
 type MerchantInfo = {
   merchantId: string;
@@ -44,11 +44,16 @@ export default function UserPayScreen() {
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
+  const [unusedVouchers, setUnusedVouchers] = useState<GeneratedVoucher[]>([]);
+  const [showingVoucher, setShowingVoucher] = useState<GeneratedVoucher | null>(null);
 
   // Initialize user keypair on screen load
   useEffect(() => {
     (async () => {
       await ensureUserKeypairAndId();
+      // Load any vouchers user generated but hasn't shown to a merchant yet
+      const all = await getGeneratedVouchers();
+      setUnusedVouchers(all.filter((v) => !v.used));
     })();
   }, []);
 
@@ -232,6 +237,22 @@ export default function UserPayScreen() {
 
       setVoucher(newVoucher);
       setError(null);
+
+      // Save so user can show this QR again if merchant hasn't scanned it yet
+      await saveGeneratedVoucher({
+        voucherId: newVoucher.voucherId,
+        merchantId: newVoucher.merchantId,
+        merchantName: merchant?.name,
+        amount: newVoucher.amount,
+        createdAt: newVoucher.createdAt,
+        issuedTo: newVoucher.issuedTo,
+        signature: newVoucher.signature,
+        publicKeyHex: newVoucher.publicKeyHex ?? '',
+        used: false,
+      });
+      // Refresh unused-voucher list (new one added, not yet used)
+      const all = await getGeneratedVouchers();
+      setUnusedVouchers(all.filter((v) => !v.used));
     } catch (e) {
       console.log("Error signing voucher / updating balance:", e);
       console.error("Full error:", JSON.stringify(e, null, 2));
@@ -270,8 +291,77 @@ export default function UserPayScreen() {
           )}
         </View>
 
+        {/* ── UNUSED VOUCHERS — generated but not yet shown to merchant ── */}
+        {!merchant && !voucher && !showingVoucher && unusedVouchers.length > 0 && (
+          <View style={styles.stepCard}>
+            <Text style={styles.unusedTitle}>🎫 Unused Vouchers</Text>
+            <Text style={styles.unusedSub}>
+              These were generated but the merchant hasn't scanned them yet. Tap to show the QR again.
+            </Text>
+            {unusedVouchers.map((v) => (
+              <Pressable key={v.voucherId} style={styles.unusedRow} onPress={() => setShowingVoucher(v)}>
+                <View style={styles.unusedInfo}>
+                  <Text style={styles.unusedAmount}>₹{v.amount}</Text>
+                  <Text style={styles.unusedMerchant}>{v.merchantName || v.merchantId}</Text>
+                  <Text style={styles.unusedDate}>
+                    {new Date(v.createdAt).toLocaleString('en-IN', {
+                      day: 'numeric', month: 'short',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </Text>
+                </View>
+                <Text style={styles.unusedTap}>Show QR →</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* ── RE-SHOW UNUSED VOUCHER QR ── */}
+        {showingVoucher && !voucher && (
+          <View style={styles.stepCard}>
+            <View style={styles.stepHeader}>
+              <Text style={styles.stepNumber}>📲</Text>
+              <Text style={styles.stepTitle}>Show to Merchant</Text>
+            </View>
+            <View style={[styles.successBadge, { backgroundColor: '#fff3cd', borderColor: '#ffc107' }]}>
+              <Text style={[styles.successText, { color: '#856404' }]}>
+                ⚠️ Pending — merchant hasn't scanned this yet
+              </Text>
+            </View>
+            <View style={styles.qrContainer}>
+              <QRCode
+                value={JSON.stringify(showingVoucher)}
+                size={200}
+                backgroundColor="#ffffff"
+                color="#2d3748"
+              />
+            </View>
+            <View style={styles.voucherDetails}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Amount</Text>
+                <Text style={styles.detailValue}>₹{showingVoucher.amount}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Merchant</Text>
+                <Text style={styles.detailValue}>
+                  {showingVoucher.merchantName || showingVoucher.merchantId}
+                </Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Created</Text>
+                <Text style={styles.detailValueSmall}>
+                  {new Date(showingVoucher.createdAt).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+            <Pressable style={styles.secondaryButton} onPress={() => setShowingVoucher(null)}>
+              <Text style={styles.secondaryButtonText}>← Back</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* STEP 1: SCAN MERCHANT */}
-        {!merchant && !voucher && (
+        {!merchant && !voucher && !showingVoucher && (
           <View style={styles.stepCard}>
             <View style={styles.stepHeader}>
               <Text style={styles.stepNumber}>1</Text>
@@ -790,5 +880,65 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     borderRadius: 12,
     backgroundColor: "transparent",
+  },
+  // ── Unused voucher card ──
+  unusedTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2d3748',
+    marginBottom: 4,
+  },
+  unusedSub: {
+    fontSize: 13,
+    color: '#718096',
+    marginBottom: 12,
+  },
+  unusedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f7f8fc',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  unusedInfo: { flex: 1 },
+  unusedAmount: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#667eea',
+  },
+  unusedMerchant: {
+    fontSize: 13,
+    color: '#2d3748',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  unusedDate: {
+    fontSize: 11,
+    color: '#a0aec0',
+    marginTop: 2,
+  },
+  unusedTap: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#667eea',
+    marginLeft: 8,
+  },
+  // ── Secondary back button ──
+  secondaryButton: {
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#667eea',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#667eea',
   },
 });

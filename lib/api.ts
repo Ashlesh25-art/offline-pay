@@ -6,9 +6,10 @@ export const BASE_URL = API_BASE_URL;
 
 // ─── AsyncStorage keys ────────────────────────────────────────────────────────
 export const STORAGE_KEYS = {
-  WALLET_BALANCE: "@walletBalance",         // cached numeric balance
+  WALLET_BALANCE: "@walletBalance",             // cached numeric balance
   OFFLINE_TRANSACTIONS: "@offlineTransactions", // user's outgoing payment queue
-  USED_VOUCHER_IDS: "@usedVoucherIds",      // merchant double-spend guard
+  USED_VOUCHER_IDS: "@usedVoucherIds",          // merchant double-spend guard
+  GENERATED_VOUCHERS: "@generatedVouchers",     // vouchers created by user (incl. unused ones)
 };
 
 // ─── Network check ────────────────────────────────────────────────────────────
@@ -49,6 +50,44 @@ export async function deductLocalBalance(amount: number): Promise<number> {
   const next = Math.max(0, current - amount);
   await saveLocalBalance(next);
   return next;
+}
+
+// ─── Generated vouchers (user-side) ─────────────────────────────────────────
+export type GeneratedVoucher = {
+  voucherId: string;
+  merchantId: string;
+  merchantName?: string;
+  amount: number;
+  createdAt: string;
+  issuedTo: string;
+  signature: string;
+  publicKeyHex: string;
+  used: boolean;       // true once merchant confirms scan
+};
+
+/** Save a newly generated voucher so the user can show it again if needed. */
+export async function saveGeneratedVoucher(v: GeneratedVoucher): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.GENERATED_VOUCHERS);
+  const list: GeneratedVoucher[] = raw ? JSON.parse(raw) : [];
+  if (!list.find((x) => x.voucherId === v.voucherId)) {
+    list.push(v);
+    await AsyncStorage.setItem(STORAGE_KEYS.GENERATED_VOUCHERS, JSON.stringify(list));
+  }
+}
+
+/** Get all generated vouchers (both used and unused). */
+export async function getGeneratedVouchers(): Promise<GeneratedVoucher[]> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.GENERATED_VOUCHERS);
+  return raw ? JSON.parse(raw) : [];
+}
+
+/** Mark a voucher as used (after merchant confirms / sync succeeds). */
+export async function markVoucherUsed(voucherId: string): Promise<void> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.GENERATED_VOUCHERS);
+  if (!raw) return;
+  const list: GeneratedVoucher[] = JSON.parse(raw);
+  const updated = list.map((v) => v.voucherId === voucherId ? { ...v, used: true } : v);
+  await AsyncStorage.setItem(STORAGE_KEYS.GENERATED_VOUCHERS, JSON.stringify(updated));
 }
 
 // ─── Offline transaction queue ────────────────────────────────────────────────
@@ -135,6 +174,8 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
           if (syncedNow.has(txn.voucherId) || alreadySynced.has(txn.voucherId)) {
             txn.status = "synced";
             syncedCount++;
+            // Also mark the generated voucher as used
+            await markVoucherUsed(txn.voucherId);
           }
         }
       }
