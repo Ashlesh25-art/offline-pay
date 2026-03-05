@@ -208,7 +208,11 @@ export default function TransactionDetailModal({
           </Pressable>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Amount Card */}
           <View style={styles.amountCard}>
             <Text style={styles.amountLabel}>
@@ -389,7 +393,7 @@ export default function TransactionDetailModal({
           <View style={{ height: 20 }} />
         </ScrollView>
 
-        {/* ─── Action Buttons ─── */}
+        {/* ─── Action Buttons — pinned to bottom ─── */}
         <View style={styles.actionBar}>
           <Pressable
             style={[styles.actionBtn, styles.downloadBtn, pdfLoading && styles.btnDisabled]}
@@ -645,9 +649,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     padding: 16,
+    paddingBottom: 24,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   actionBtn: {
     flex: 1,
