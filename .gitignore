@@ -42,5 +42,3 @@ app-example
 /ios
 /android
 
-# Backend folder (separate service)
-offline-pay-backend/
