@@ -12,7 +12,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { API_BASE_URL } from "../../lib/api";
+import { API_BASE_URL, getOfflineTransactions } from "../../lib/api";
 import TransactionDetailModal from "../../components/TransactionDetailModal";
 
 type Transaction = {
@@ -44,18 +44,43 @@ export default function UserHistoryScreen() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/transactions/user`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      // ── Load local offline transactions (always available) ──────────────────
+      const offlineTxns = await getOfflineTransactions();
+      const localTxns: Transaction[] = offlineTxns.map((t) => ({
+        id: t.voucherId,
+        type: "debit" as const,
+        category: "payment",
+        amount: t.amount,
+        description: `Paid to ${t.merchantId}`,
+        merchantId: t.merchantId,
+        timestamp: t.timestamp,
+        status: t.status === "synced" ? "synced" : "pending",
+      }));
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch transactions");
+      // ── Load from backend (may return empty if backend bug not fixed yet) ───
+      let backendTxns: Transaction[] = [];
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/transactions/user`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          backendTxns = data.transactions || [];
+        }
+      } catch {
+        // Offline — backend not reachable, use local only
       }
 
-      const data = await response.json();
-      setTransactions(data.transactions || []);
+      // ── Merge: backend first, then add local ones not already in backend ────
+      const backendIds = new Set(backendTxns.map((t) => t.id));
+      const merged = [
+        ...backendTxns,
+        ...localTxns.filter((t) => !backendIds.has(t.id)),
+      ];
+
+      // Sort newest first
+      merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setTransactions(merged);
     } catch (error) {
       console.error("Error loading transactions:", error);
     } finally {
