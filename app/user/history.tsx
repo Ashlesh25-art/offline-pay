@@ -146,7 +146,7 @@ export default function UserHistoryScreen() {
           <Text style={styles.transactionDate}>{formatDate(item.timestamp)}</Text>
           {item.status && (
             <Text style={[styles.status, item.status === "synced" ? styles.statusSynced : styles.statusPending]}>
-              {item.status}
+              {item.status === "synced" ? "✅ Payment Successful" : "⏳ Awaiting confirmation"}
             </Text>
           )}
         </View>
