@@ -26,6 +26,7 @@ type Transaction = {
   timestamp: string;
   status?: string;
   merchantId?: string;
+  syncError?: string | null;
 };
 
 export default function MerchantHistoryScreen() {
@@ -38,6 +39,7 @@ export default function MerchantHistoryScreen() {
   const [syncing, setSyncing] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
   const [syncedCount, setSyncedCount] = useState(0);
+  const [filter, setFilter] = useState<"all" | "pending" | "synced">("all");
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
 
@@ -61,6 +63,7 @@ export default function MerchantHistoryScreen() {
           payerName: v.issuedTo ? `User ...${v.issuedTo.slice(-6)}` : "Customer",
           timestamp: v.createdAt,
           status: v.status,
+          syncError: v.syncError || null,
         }));
         const pending = offlineVouchers.filter((v: any) => v.status === "offline").length;
         const synced = offlineVouchers.filter((v: any) => v.status === "synced").length;
@@ -154,10 +157,17 @@ export default function MerchantHistoryScreen() {
       const responseText = await response.text();
       if (!response.ok) throw new Error(`Sync failed: ${response.status} - ${responseText}`);
       const result = JSON.parse(responseText);
-      // Mark synced vouchers in local storage
+      // Build a map of rejection reasons
+      const rejectionMap: Record<string, string> = {};
+      for (const r of (result.rejected || [])) {
+        rejectionMap[r.voucherId] = r.reason || "Rejected by server";
+      }
+      // Mark synced vouchers; attach rejection reason to others
       const updated = vouchers.map((v: any) =>
         result.syncedIds.includes(v.voucherId)
-          ? { ...v, status: "synced", syncedAt: new Date().toISOString() }
+          ? { ...v, status: "synced", syncedAt: new Date().toISOString(), syncError: null }
+          : rejectionMap[v.voucherId]
+          ? { ...v, syncError: rejectionMap[v.voucherId] }
           : v
       );
       await AsyncStorage.setItem("@offline_vouchers", JSON.stringify(updated));
@@ -209,9 +219,21 @@ export default function MerchantHistoryScreen() {
       {item.status && (
         <View style={[styles.statusBadge, item.status === "synced" ? styles.statusSynced : styles.statusOffline]}>
           <Text style={[styles.statusText, item.status === "synced" ? styles.statusTextSynced : styles.statusTextOffline]}>
-            {item.status === "synced" ? "Synced" : "Offline — pending sync"}
+            {item.status === "synced" ? "✅ Synced to server" : "⏳ Pending sync"}
           </Text>
         </View>
+      )}
+      {/* Show WHY this voucher is not syncing */}
+      {item.status !== "synced" && item.syncError && (
+        <View style={styles.syncErrorBox}>
+          <Text style={styles.syncErrorTitle}>⚠️ Last sync attempt failed:</Text>
+          <Text style={styles.syncErrorMsg}>{item.syncError}</Text>
+        </View>
+      )}
+      {item.status !== "synced" && !item.syncError && (
+        <Text style={styles.syncPendingHint}>
+          Not yet synced — tap "Sync" button above or wait for internet
+        </Text>
       )}
     </Pressable>
   );
@@ -239,20 +261,27 @@ export default function MerchantHistoryScreen() {
         <Text style={styles.subtitle}>Payments received from customers</Text>
       </LinearGradient>
 
-      {/* Stats Row */}
+      {/* Stats Row — Pending Sync card is tappable */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
+        <Pressable style={styles.statCard} onPress={() => setFilter("all")}>
           <Text style={styles.statValue}>&#8377;{totalReceived}</Text>
           <Text style={styles.statLabel}>Total Received</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={[styles.statValue, { color: "#f59e0b" }]}>{offlineCount}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.statCard, filter === "pending" && styles.statCardActive]}
+          onPress={() => setFilter(filter === "pending" ? "all" : "pending")}
+        >
+          <Text style={[styles.statValue, { color: offlineCount > 0 ? "#f59e0b" : "#16a34a" }]}>{offlineCount}</Text>
           <Text style={styles.statLabel}>Pending Sync</Text>
-        </View>
-        <View style={styles.statCard}>
+          {offlineCount > 0 && <Text style={styles.statTap}>tap to view</Text>}
+        </Pressable>
+        <Pressable
+          style={[styles.statCard, filter === "synced" && styles.statCardActive]}
+          onPress={() => setFilter(filter === "synced" ? "all" : "synced")}
+        >
           <Text style={[styles.statValue, { color: "#16a34a" }]}>{syncedCount}</Text>
           <Text style={styles.statLabel}>Synced</Text>
-        </View>
+        </Pressable>
       </View>
 
       {/* Sync Button — always visible */}
@@ -281,9 +310,29 @@ export default function MerchantHistoryScreen() {
         </Pressable>
       </View>
 
+      {/* Filter label */}
+      {filter !== "all" && (
+        <View style={styles.filterBanner}>
+          <Text style={styles.filterBannerText}>
+            {filter === "pending"
+              ? `Showing ${transactions.filter(t => t.status !== "synced").length} pending voucher(s)`
+              : `Showing ${transactions.filter(t => t.status === "synced").length} synced voucher(s)`}
+          </Text>
+          <Pressable onPress={() => setFilter("all")}>
+            <Text style={styles.filterClear}>Show all ✕</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Transaction List */}
-      {transactions.length === 0 ? (
-        <View style={styles.emptyContainer}>
+      {(() => {
+        const filtered = filter === "pending"
+          ? transactions.filter(t => t.status !== "synced")
+          : filter === "synced"
+          ? transactions.filter(t => t.status === "synced")
+          : transactions;
+        return filtered.length === 0 ? (
+          <View style={styles.emptyContainer}>
           <Text style={styles.emptyIcon}>&#128176;</Text>
           <Text style={styles.emptyTitle}>No Payments Yet</Text>
           <Text style={styles.emptySubtitle}>
@@ -296,20 +345,21 @@ export default function MerchantHistoryScreen() {
             <Text style={styles.emptyStep}>4. Tap Sync above to save to the server</Text>
           </View>
         </View>
-      ) : (
-        <FlatList
-          data={transactions}
-          renderItem={renderTransaction}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListHeaderComponent={
-            <Text style={styles.listHeader}>
-              {transactions.length} transaction{transactions.length !== 1 ? "s" : ""} · Pull to refresh
-            </Text>
-          }
-        />
-      )}
+        ) : (
+          <FlatList
+            data={filtered}
+            renderItem={renderTransaction}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContainer}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            ListHeaderComponent={
+              <Text style={styles.listHeader}>
+                {filtered.length} transaction{filtered.length !== 1 ? "s" : ""} · Pull to refresh
+              </Text>
+            }
+          />
+        );
+      })()}
 
       <TransactionDetailModal
         visible={detailModalVisible}
@@ -343,6 +393,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  statCardActive: {
+    borderWidth: 2,
+    borderColor: "#2563eb",
+  },
+  statTap: { fontSize: 10, color: "#2563eb", fontWeight: "600", marginTop: 2 },
   statValue: { fontSize: 20, fontWeight: "800", color: "#1f2937", marginBottom: 2 },
   statLabel: { fontSize: 11, color: "#6b7280", fontWeight: "500", textAlign: "center" },
   syncContainer: { paddingHorizontal: 16, marginBottom: 12 },
@@ -401,6 +456,30 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontWeight: "700" },
   statusTextOffline: { color: "#b45309" },
   statusTextSynced: { color: "#15803d" },
+  syncErrorBox: {
+    marginTop: 10,
+    backgroundColor: "#fef2f2",
+    borderRadius: 8,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: "#dc2626",
+  },
+  syncErrorTitle: { fontSize: 11, fontWeight: "700", color: "#dc2626", marginBottom: 3 },
+  syncErrorMsg: { fontSize: 12, color: "#7f1d1d", lineHeight: 17 },
+  syncPendingHint: { fontSize: 11, color: "#92400e", marginTop: 8, fontStyle: "italic" },
+  filterBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+  },
+  filterBannerText: { fontSize: 12, color: "#1e40af", fontWeight: "600" },
+  filterClear: { fontSize: 12, color: "#2563eb", fontWeight: "700" },
   emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 36 },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
   emptyTitle: { fontSize: 22, fontWeight: "700", color: "#374151", marginBottom: 8 },
