@@ -162,8 +162,9 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
 
       if (response.ok) {
         const result = await response.json();
-        // Mark synced: both freshly synced AND duplicates (already synced by merchant)
+        // syncedNow = user uploaded first (voucher backed up, but merchant hasn't scanned yet)
         const syncedNow = new Set<string>(result.syncedIds || []);
+        // alreadySynced = backend already had this voucher = MERCHANT scanned first = confirmed
         const alreadySynced = new Set<string>(
           (result.rejected || [])
             .filter((r: { reason: string; voucherId: string }) => r.reason === "Duplicate voucherId")
@@ -174,7 +175,10 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
           if (syncedNow.has(txn.voucherId) || alreadySynced.has(txn.voucherId)) {
             txn.status = "synced";
             syncedCount++;
-            // Also mark the generated voucher as used
+          }
+          // Only mark voucher as truly used when MERCHANT synced first
+          // (Duplicate = merchant already stored this voucher = they actually received payment)
+          if (alreadySynced.has(txn.voucherId)) {
             await markVoucherUsed(txn.voucherId);
           }
         }
