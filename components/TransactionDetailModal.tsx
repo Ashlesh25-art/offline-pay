@@ -28,10 +28,11 @@ export default function TransactionDetailModal({
   transaction, 
   userType 
 }: TransactionDetailProps) {
-  if (!transaction) return null;
-
+  // Hooks MUST be at the top — before any early return (Rules of Hooks)
   const [pdfLoading, setPdfLoading] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
+
+  if (!transaction) return null;
 
   const formatDate = (timestamp: string) => {
     const date = new Date(timestamp);

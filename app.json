@@ -49,8 +49,7 @@
         {
           "icon": "./assets/images/android-icon-foreground.png",
           "color": "#16a34a",
-          "defaultChannel": "offline-pay",
-          "sounds": []
+          "defaultChannel": "offline-pay"
         }
       ]
     ],
