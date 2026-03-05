@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: offline-pay-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    autoDeploy: true
+    domains:
+      - offline-pay-backend.onrender.com
+    healthCheckPath: /api/health
+    numInstances: 1
+    region: oregon
