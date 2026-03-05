@@ -82,8 +82,8 @@ export async function getOfflineTransactions(): Promise<OfflineTransaction[]> {
 
 /**
  * Sync all "pending" offline transactions to the backend.
- * Each voucher is sent individually; successfully synced ones are marked "synced".
- * The backend should verify the ECDSA signature before crediting the merchant.
+ * Groups transactions by merchantId and calls /api/vouchers/sync for each group.
+ * Marks as "synced" if backend confirms sync OR reports duplicate (already synced by merchant).
  *
  * @returns number of newly synced transactions
  */
@@ -95,20 +95,48 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
   const pending = list.filter((t) => t.status === "pending");
   if (pending.length === 0) return 0;
 
-  let syncedCount = 0;
+  // Group by merchantId — the sync endpoint requires one merchantId per call
+  const byMerchant: Record<string, OfflineTransaction[]> = {};
   for (const txn of pending) {
+    if (!byMerchant[txn.merchantId]) byMerchant[txn.merchantId] = [];
+    byMerchant[txn.merchantId].push(txn);
+  }
+
+  let syncedCount = 0;
+  for (const [merchantId, txns] of Object.entries(byMerchant)) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/vouchers/redeem`, {
+      const vouchers = txns.map((t) => ({
+        voucherId: t.voucherId,
+        merchantId: t.merchantId,
+        amount: t.amount,
+        createdAt: t.timestamp,
+        issuedTo: t.userId,
+        signature: t.signature,
+        publicKeyHex: t.publicKeyHex,
+      }));
+
+      const response = await fetch(`${API_BASE_URL}/api/vouchers/sync`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(txn),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchantId, vouchers }),
       });
+
       if (response.ok) {
-        txn.status = "synced";
-        syncedCount++;
+        const result = await response.json();
+        // Mark synced: both freshly synced AND duplicates (already synced by merchant)
+        const syncedNow = new Set<string>(result.syncedIds || []);
+        const alreadySynced = new Set<string>(
+          (result.rejected || [])
+            .filter((r: { reason: string; voucherId: string }) => r.reason === "Duplicate voucherId")
+            .map((r: { voucherId: string }) => r.voucherId)
+        );
+
+        for (const txn of txns) {
+          if (syncedNow.has(txn.voucherId) || alreadySynced.has(txn.voucherId)) {
+            txn.status = "synced";
+            syncedCount++;
+          }
+        }
       }
     } catch {
       // Network still unavailable — keep as pending, retry next time

@@ -12,7 +12,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { API_BASE_URL, getOfflineTransactions } from "../../lib/api";
+import { API_BASE_URL, getOfflineTransactions, syncOfflineTransactions } from "../../lib/api";
 import TransactionDetailModal from "../../components/TransactionDetailModal";
 
 type Transaction = {
@@ -43,6 +43,9 @@ export default function UserHistoryScreen() {
         router.replace("/login");
         return;
       }
+
+      // ── Sync pending transactions first (marks as synced if merchant already redeemed) ──
+      try { await syncOfflineTransactions(token); } catch { /* offline, skip */ }
 
       // ── Load local offline transactions (always available) ──────────────────
       const offlineTxns = await getOfflineTransactions();
