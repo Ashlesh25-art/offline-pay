@@ -9,7 +9,7 @@ const IS_EXPO_GO = Constants.appOwnership === 'expo';
 // Lazy import — only load expo-notifications when NOT in Expo Go.
 // A top-level import triggers the SDK 53 Expo Go warning even if the code is never called.
 function getNotifications() {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('expo-notifications') as typeof import('expo-notifications');
 }
 
