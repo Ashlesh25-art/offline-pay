@@ -169,7 +169,12 @@ export default function MerchantProfileScreen() {
           </View>
         </Pressable>
         <Text style={styles.title}>Merchant Profile</Text>
-        <View style={styles.headerSpacer} />
+        <Pressable
+          onPress={() => router.push("/merchant/settings")}
+          style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -326,7 +331,15 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   backArrow: { fontSize: 20, color: "#fff", fontWeight: "700" },
-  headerSpacer: { width: 40 },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsIcon: { fontSize: 20 },
   title: { flex: 1, fontSize: 22, fontWeight: "800", color: "#fff", textAlign: "center" },
 
   scrollContent: { paddingHorizontal: 18, paddingBottom: 20 },

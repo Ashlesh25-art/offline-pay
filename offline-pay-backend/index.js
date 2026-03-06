@@ -1164,6 +1164,80 @@ app.put("/api/merchant/profile", authMiddleware, async (req, res) => {
 });
 
 /**
+ * PUT /api/user/change-password
+ * Change user password (requires old password for verification)
+ */
+app.put("/api/user/change-password", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: "Old and new passwords are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    const db = getDB();
+    const user = await db.collection('users').findOne({ userId });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const match = await comparePassword(oldPassword, user.passwordHash);
+    if (!match) return res.status(401).json({ error: "Current password is incorrect" });
+
+    const newHash = await hashPassword(newPassword);
+    await db.collection('users').updateOne(
+      { userId },
+      { $set: { passwordHash: newHash, updatedAt: new Date().toISOString() } }
+    );
+
+    console.log(`🔑 User ${userId} changed password`);
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change user password error:", error);
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+/**
+ * PUT /api/merchant/change-password
+ * Change merchant password (requires old password for verification)
+ */
+app.put("/api/merchant/change-password", authMiddleware, async (req, res) => {
+  try {
+    const merchantId = req.user.merchantId || req.user.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: "Old and new passwords are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    const db = getDB();
+    const merchant = await db.collection('merchants').findOne({ merchantId });
+    if (!merchant) return res.status(404).json({ error: "Merchant not found" });
+
+    const match = await comparePassword(oldPassword, merchant.passwordHash);
+    if (!match) return res.status(401).json({ error: "Current password is incorrect" });
+
+    const newHash = await hashPassword(newPassword);
+    await db.collection('merchants').updateOne(
+      { merchantId },
+      { $set: { passwordHash: newHash, updatedAt: new Date().toISOString() } }
+    );
+
+    console.log(`🔑 Merchant ${merchantId} changed password`);
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change merchant password error:", error);
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+/**
  * POST /api/balance/deduct
  * Deduct balance from user (for payments)
  */

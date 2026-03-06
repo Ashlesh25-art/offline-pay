@@ -145,7 +145,12 @@ export default function ProfileScreen() {
           </View>
         </Pressable>
         <Text style={styles.title}>My Profile</Text>
-        <View style={styles.headerSpacer} />
+        <Pressable
+          onPress={() => router.push("/user/settings")}
+          style={({ pressed }) => [styles.settingsBtn, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -275,7 +280,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   backArrow: { fontSize: 20, color: "#fff", fontWeight: "700" },
-  headerSpacer: { width: 40 },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsIcon: { fontSize: 20 },
   title: {
     flex: 1,
     fontSize: 22,

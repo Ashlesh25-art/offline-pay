@@ -7,6 +7,7 @@ export default function MerchantLayout() {
       <Stack.Screen name="receive" />
       <Stack.Screen name="history" />
       <Stack.Screen name="profile" />
+      <Stack.Screen name="settings" />
     </Stack>
   );
 }
