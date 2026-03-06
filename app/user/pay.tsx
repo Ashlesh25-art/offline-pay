@@ -15,7 +15,7 @@ import QRCode from "react-native-qrcode-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { getUserId, signPayloadHex, ensureUserKeypairAndId, getPublicKeyHex } from "../../lib/cryptoKeys";
-import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction, saveGeneratedVoucher, getGeneratedVouchers, GeneratedVoucher } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction, saveGeneratedVoucher, getGeneratedVouchers, syncOfflineTransactions, GeneratedVoucher } from "../../lib/api";
 
 type MerchantInfo = {
   merchantId: string;
@@ -81,8 +81,20 @@ export default function UserPayScreen() {
         const data = await response.json();
         setBalance(data.balance);
         setIsOffline(false);
-        // Always keep local cache up-to-date
         await saveLocalBalance(data.balance);
+        // Sync pending offline transactions then re-fetch so balance reflects deductions
+        const syncedCount = await syncOfflineTransactions(token).catch(() => 0);
+        if (syncedCount > 0) {
+          const refreshed = await fetch(`${API_BASE_URL}/api/balance`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          });
+          if (refreshed.ok) {
+            const rd = await refreshed.json();
+            setBalance(rd.balance);
+            await saveLocalBalance(rd.balance);
+          }
+        }
       } else {
         // Backend error — use cached balance
         const cached = await getLocalBalance();

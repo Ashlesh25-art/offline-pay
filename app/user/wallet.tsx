@@ -73,8 +73,20 @@ export default function UserWalletScreen() {
         setIsOffline(false);
         // Cache the latest balance locally for offline use
         await saveLocalBalance(data.balance);
-        // Opportunistically sync any queued offline transactions
-        await syncOfflineTransactions(token).catch(() => {});
+        // Sync any queued offline transactions — this deducts balance on backend
+        const syncedCount = await syncOfflineTransactions(token).catch(() => 0);
+        // Re-fetch balance if sync ran so UI reflects the deducted amount
+        if (syncedCount > 0) {
+          const refreshed = await fetch(`${API_BASE_URL}/api/balance`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          });
+          if (refreshed.ok) {
+            const refreshedData = await refreshed.json();
+            setBalance(refreshedData.balance);
+            await saveLocalBalance(refreshedData.balance);
+          }
+        }
       } else {
         // Backend returned error — fall back to cached balance
         const cached = await getLocalBalance();
