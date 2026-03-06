@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
@@ -7,9 +6,16 @@ import Constants from 'expo-constants';
 // no warnings during development. Everything works normally in the real APK.
 const IS_EXPO_GO = Constants.appOwnership === 'expo';
 
+// Lazy import — only load expo-notifications when NOT in Expo Go.
+// A top-level import triggers the SDK 53 Expo Go warning even if the code is never called.
+function getNotifications() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('expo-notifications') as typeof import('expo-notifications');
+}
+
 // ─── Configure how notifications appear when app is in foreground ────────────
 if (!IS_EXPO_GO) {
-  Notifications.setNotificationHandler({
+  getNotifications().setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
       shouldPlaySound: true,
@@ -25,17 +31,18 @@ export async function requestNotificationPermission(): Promise<boolean> {
   // Skip in Expo Go — push notifications are not supported there in SDK 53+
   if (IS_EXPO_GO) return false;
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  const N = getNotifications();
+  const { status: existingStatus } = await N.getPermissionsAsync();
   if (existingStatus === 'granted') return true;
 
-  const { status } = await Notifications.requestPermissionsAsync();
+  const { status } = await N.requestPermissionsAsync();
   if (status !== 'granted') return false;
 
   // Android 8+ requires a notification channel
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('offline-pay', {
+    await N.setNotificationChannelAsync('offline-pay', {
       name: 'Offline Pay Alerts',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: N.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#16a34a',
       sound: 'default',
@@ -53,7 +60,7 @@ export async function sendNotification(
   // Expo Go does not support notifications in SDK 53+ — skip silently
   if (IS_EXPO_GO) return;
   try {
-    await Notifications.scheduleNotificationAsync({
+    await getNotifications().scheduleNotificationAsync({
       content: {
         title,
         body,
