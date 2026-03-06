@@ -103,7 +103,7 @@ export type OfflineTransaction = {
   timestamp: string;
   signature: string;
   publicKeyHex: string;
-  status: "pending" | "synced";
+  status: "pending" | "synced" | "failed";
 };
 
 /** Add a new payment to the offline queue (idempotent — ignores duplicates). */
@@ -175,6 +175,15 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
             .map((r: { voucherId: string }) => r.voucherId)
         );
 
+        // Build set of server-rejected voucherIds (non-duplicate reasons)
+        // These transactions reached the server but were refused — mark as
+        // "failed" so they never block the pending queue forever.
+        const serverRejected = new Set<string>(
+          (result.rejected || [])
+            .filter((r: { reason: string; voucherId: string }) => r.reason !== "Duplicate voucherId")
+            .map((r: { voucherId: string }) => r.voucherId)
+        );
+
         for (const txn of txns) {
           if (syncedNow.has(txn.voucherId) || alreadySynced.has(txn.voucherId)) {
             txn.status = "synced";
@@ -199,16 +208,23 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
             } catch {
               // If this fails, it will be retried next time sync runs
             }
-          }
-          // Only mark voucher as truly used when MERCHANT synced first
-          // (Duplicate = merchant already stored this voucher = they actually received payment)
-          if (alreadySynced.has(txn.voucherId)) {
+
+            // Mark voucher as used whenever the transaction syncs (user or merchant first).
+            // The voucher IS done from the user's perspective — money has left their wallet.
             await markVoucherUsed(txn.voucherId);
-            // 🔔 Notify user: payment confirmed by merchant
-            await notifyPaymentConfirmed(txn.amount);
-          } else if (syncedNow.has(txn.voucherId)) {
-            // 🔔 Voucher backed up but merchant hasn't scanned yet
-            await notifyVoucherSynced(txn.amount);
+
+            if (alreadySynced.has(txn.voucherId)) {
+              // Merchant already had this voucher → payment fully confirmed
+              await notifyPaymentConfirmed(txn.amount);
+            } else {
+              // User backed up first — merchant will scan later
+              await notifyVoucherSynced(txn.amount);
+            }
+          } else if (serverRejected.has(txn.voucherId)) {
+            // Server received the request but rejected this voucher (bad signature,
+            // insufficient balance, etc.). It will never sync — mark failed so it
+            // leaves the pending queue and stops blocking the banner.
+            txn.status = "failed";
           }
         }
       }

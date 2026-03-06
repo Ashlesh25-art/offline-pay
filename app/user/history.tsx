@@ -70,8 +70,7 @@ export default function UserHistoryScreen() {
       try { await syncOfflineTransactions(token); } catch { /* offline, skip */ }
 
       // ── Count remaining pending after sync ──────────────────────────────
-      const allTxns = await getOfflineTransactions();
-      setPendingCount(allTxns.filter((t) => t.status === "pending").length);
+      const allTxns = await getOfflineTransactions();      // Only "pending" ones need syncing (failed = server rejected, synced = done)      setPendingCount(allTxns.filter((t) => t.status === "pending").length);
 
       // ── Load all generated vouchers ────────────────────────────────────────
       const allVouchers = await getGeneratedVouchers();
@@ -81,9 +80,13 @@ export default function UserHistoryScreen() {
       setVouchers(allVouchers);
       const voucherMap = new Map(allVouchers.map((v) => [v.voucherId, v]));
 
-      // ── Load local offline transactions ────────────────────────────────────
+      // ── Load local offline transactions (pending only) ──────────────────────────
+      // "synced" transactions are already returned by the backend — including them
+      // here too would create duplicates. "failed" ones are shown separately below.
       const offlineTxns = await getOfflineTransactions();
-      const localTxns: Transaction[] = offlineTxns.map((t) => ({
+      const localTxns: Transaction[] = offlineTxns
+        .filter((t) => t.status === "pending") // synced & failed excluded
+        .map((t) => ({
         id: t.voucherId,
         type: "debit" as const,
         category: "payment",
@@ -149,7 +152,14 @@ export default function UserHistoryScreen() {
       if (synced > 0) {
         setSyncResult(`✅ ${synced} transaction${synced > 1 ? "s" : ""} synced!`);
       } else {
-        setSyncResult("📵 Still offline — try again when connected");
+        // Check if we actually reached the server or were just offline
+        const isOnline = await fetch(`${API_BASE_URL}/api/health`, { method: "HEAD" })
+          .then((r) => r.ok).catch(() => false);
+        if (isOnline) {
+          setSyncResult("⚠️ Payments could not be verified — try again later");
+        } else {
+          setSyncResult("📵 Still offline — try again when connected");
+        }
       }
       await loadTransactions();
     } catch {

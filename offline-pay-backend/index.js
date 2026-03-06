@@ -1263,21 +1263,21 @@ app.get("/api/transactions/user", authMiddleware, async (req, res) => {
 
     // Combine balance history and payments — deduplicate by voucherId
     const transactions = [];
-    // Track voucherIds already added from the vouchers collection
-    const addedVoucherIds = new Set(payments.map(p => p.voucherId));
 
-    // Add balance additions (wallet top-ups); skip payment entries that are
-    // already represented in the vouchers collection to avoid duplicates
+    // Add ONLY wallet top-up (add) entries from balanceHistory.
+    // Payment entries are intentionally excluded here — the vouchers collection
+    // below is the single authoritative source for all payment transactions.
+    // Including both would produce duplicates (old entries lack voucherId so the
+    // previous partial dedup failed for pre-fix transactions).
     if (user.balanceHistory && Array.isArray(user.balanceHistory)) {
       user.balanceHistory.forEach(h => {
-        // Skip deduction entries that are already in the vouchers collection
-        if (h.type === 'payment' && h.voucherId && addedVoucherIds.has(h.voucherId)) return;
+        if (h.type !== 'add') return; // skip all payment/deduction entries
         transactions.push({
           id: `bal_${h.timestamp}`,
-          type: h.type === 'add' ? 'credit' : 'debit',
-          category: h.type === 'add' ? 'wallet_load' : 'payment',
+          type: 'credit',
+          category: 'wallet_load',
           amount: h.amount,
-          description: h.type === 'add' ? 'Added to wallet' : 'Payment sent',
+          description: 'Added to wallet',
           timestamp: h.timestamp,
           balance: h.newBalance
         });
