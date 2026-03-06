@@ -1186,6 +1186,18 @@ app.post("/api/balance/deduct", authMiddleware, async (req, res) => {
     }
 
     const currentBalance = user.balance || 0;
+
+    // Idempotency: if this voucherId was already deducted, return current balance without deducting again
+    if (voucherId) {
+      const alreadyDeducted = (user.balanceHistory || []).some(
+        (h) => h.voucherId === voucherId && h.type === 'payment'
+      );
+      if (alreadyDeducted) {
+        console.log(`⚠️ Duplicate deduct skipped for voucher ${voucherId}`);
+        return res.json({ success: true, balance: currentBalance, amount, message: 'Already deducted' });
+      }
+    }
+
     if (currentBalance < amount) {
       return res.status(400).json({ 
         error: "Insufficient balance",

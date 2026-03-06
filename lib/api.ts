@@ -179,6 +179,26 @@ export async function syncOfflineTransactions(token: string): Promise<number> {
           if (syncedNow.has(txn.voucherId) || alreadySynced.has(txn.voucherId)) {
             txn.status = "synced";
             syncedCount++;
+
+            // ── Explicitly deduct from backend balance via authenticated endpoint ──
+            // This is the guaranteed deduction path. The endpoint has idempotency
+            // protection (voucherId check) so it won't double-deduct.
+            try {
+              await fetch(`${API_BASE_URL}/api/balance/deduct`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  amount: txn.amount,
+                  merchantId: txn.merchantId,
+                  voucherId: txn.voucherId,
+                }),
+              });
+            } catch {
+              // If this fails, it will be retried next time sync runs
+            }
           }
           // Only mark voucher as truly used when MERCHANT synced first
           // (Duplicate = merchant already stored this voucher = they actually received payment)
