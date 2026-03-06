@@ -54,6 +54,9 @@ export default function UserHistoryScreen() {
   const [expandedVoucher, setExpandedVoucher] = useState<string | null>(null);
   const [pdfLoadingVoucher, setPdfLoadingVoucher] = useState<string | null>(null);
   const [shareLoadingVoucher, setShareLoadingVoucher] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -65,6 +68,10 @@ export default function UserHistoryScreen() {
 
       // ── Sync pending transactions first ────────────────────────────────────
       try { await syncOfflineTransactions(token); } catch { /* offline, skip */ }
+
+      // ── Count remaining pending after sync ──────────────────────────────
+      const allTxns = await getOfflineTransactions();
+      setPendingCount(allTxns.filter((t) => t.status === "pending").length);
 
       // ── Load all generated vouchers ────────────────────────────────────────
       const allVouchers = await getGeneratedVouchers();
@@ -130,6 +137,27 @@ export default function UserHistoryScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadTransactions();
+  };
+
+  const handleSyncNow = async () => {
+    try {
+      setSyncing(true);
+      setSyncResult(null);
+      const token = await AsyncStorage.getItem("@auth_token");
+      if (!token) return;
+      const synced = await syncOfflineTransactions(token);
+      if (synced > 0) {
+        setSyncResult(`✅ ${synced} transaction${synced > 1 ? "s" : ""} synced!`);
+      } else {
+        setSyncResult("📵 Still offline — try again when connected");
+      }
+      await loadTransactions();
+    } catch {
+      setSyncResult("📵 Could not sync — check your connection");
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncResult(null), 4000);
+    }
   };
 
   const handleTransactionPress = (transaction: Transaction) => {
@@ -462,6 +490,33 @@ export default function UserHistoryScreen() {
         </Pressable>
       </View>
 
+      {/* ── PENDING SYNC BANNER ── */}
+      {pendingCount > 0 && (
+        <View style={styles.syncBanner}>
+          <View style={styles.syncBannerLeft}>
+            <Text style={styles.syncBannerIcon}>⏳</Text>
+            <Text style={styles.syncBannerText}>
+              {pendingCount} payment{pendingCount > 1 ? "s" : ""} pending sync
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.syncNowBtn, syncing && styles.syncNowBtnDisabled]}
+            onPress={handleSyncNow}
+            disabled={syncing}
+          >
+            {syncing
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.syncNowBtnText}>Sync Now</Text>
+            }
+          </Pressable>
+        </View>
+      )}
+      {syncResult && (
+        <View style={[styles.syncBanner, syncResult.startsWith("✅") ? styles.syncBannerSuccess : styles.syncBannerError]}>
+          <Text style={styles.syncBannerText}>{syncResult}</Text>
+        </View>
+      )}
+
       {/* ── TRANSACTIONS TAB ── */}
       {activeTab === "transactions" && (
         <>
@@ -769,7 +824,42 @@ const styles = StyleSheet.create({
   voucherBtnDisabled: { opacity: 0.6 },
   voucherActionBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   statusBacked: { color: "#1d4ed8" },
-  // ── Empty states ──
+  // ── Sync banner ──
+  syncBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(245,158,11,0.2)",
+    borderLeftWidth: 3,
+    borderLeftColor: "#f59e0b",
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  syncBannerSuccess: {
+    backgroundColor: "rgba(16,185,129,0.2)",
+    borderLeftColor: "#10b981",
+  },
+  syncBannerError: {
+    backgroundColor: "rgba(239,68,68,0.15)",
+    borderLeftColor: "#ef4444",
+  },
+  syncBannerLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  syncBannerIcon: { fontSize: 16, marginRight: 8 },
+  syncBannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
+  syncNowBtn: {
+    backgroundColor: "#f59e0b",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    marginLeft: 10,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  syncNowBtnDisabled: { opacity: 0.6 },
+  syncNowBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
