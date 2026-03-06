@@ -908,6 +908,40 @@ app.post("/api/vouchers/sync", async (req, res) => {
         syncedAt: new Date().toISOString(),
       });
 
+      // Deduct user balance when voucher is synced for the first time
+      // This is the authoritative balance check — local AsyncStorage can be tampered on rooted devices
+      const payingUser = await usersCollection.findOne({ userId: issuedTo });
+      const backendBalance = (payingUser && typeof payingUser.balance === "number") ? payingUser.balance : 0;
+
+      if (backendBalance < v.amount) {
+        // User inflated local balance — reject voucher to prevent fraud
+        console.warn(`🚨 Fraud attempt? User ${issuedTo} has ₹${backendBalance} backend balance but voucher is ₹${v.amount}`);
+        rejected.push({ voucherId: v.voucherId, reason: "Insufficient balance" });
+        // Also remove the voucher we just inserted
+        await vouchersCollection.deleteOne({ voucherId: v.voucherId });
+        continue;
+      }
+
+      const newBalance = backendBalance - v.amount;
+      await usersCollection.updateOne(
+        { userId: issuedTo },
+        {
+          $set: { balance: newBalance },
+          $push: {
+            balanceHistory: {
+              type: "payment",
+              amount: v.amount,
+              timestamp: new Date().toISOString(),
+              previousBalance: backendBalance,
+              newBalance,
+              merchantId,
+              voucherId: v.voucherId,
+            },
+          },
+        }
+      );
+      console.log(`💸 Synced deduct: user ${issuedTo} -₹${v.amount} → ₹${newBalance}`);
+
       syncedIds.push(v.voucherId);
     }
 
