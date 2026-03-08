@@ -25,6 +25,7 @@ import {
   syncOfflineTransactions,
   getGeneratedVouchers,
   GeneratedVoucher,
+  isVoucherExpired,
 } from "../../lib/api";
 import TransactionDetailModal from "../../components/TransactionDetailModal";
 
@@ -279,59 +280,68 @@ export default function UserHistoryScreen() {
     });
 
   // ── Transaction row ──────────────────────────────────────────────────────
-  const renderTransaction = ({ item }: { item: Transaction }) => (
-    <Pressable
-      style={({ pressed }) => [
-        styles.transactionCard,
-        pressed && styles.transactionCardPressed,
-      ]}
-      onPress={() => handleTransactionPress(item)}
-    >
-      <View style={styles.transactionLeft}>
-        <View
-          style={[
-            styles.iconCircle,
-            item.type === "credit" ? styles.creditIcon : styles.debitIcon,
-          ]}
-        >
-          <Text style={styles.iconText}>
-            {item.type === "credit" ? "+" : "-"}
-          </Text>
-        </View>
-        <View style={styles.transactionInfo}>
-          <Text style={styles.transactionDesc}>{item.description}</Text>
-          <Text style={styles.transactionDate}>{formatDate(item.timestamp)}</Text>
-          {item.status && (
-            <Text
-              style={[
-                styles.status,
-                item.status === "synced" && item.voucherData?.used ? styles.statusSynced
-                : item.status === "synced" ? styles.statusBacked
-                : styles.statusPending,
-              ]}
-            >
-              {item.status === "synced" && item.voucherData?.used
-                ? "✅ Payment Confirmed"
-                : item.status === "synced"
-                ? "💾 Backed up — show QR to merchant"
-                : "⏳ Offline — show QR to merchant"}
+  const renderTransaction = ({ item }: { item: Transaction }) => {
+    const isRefund = (item as any).category === 'voucher_refund';
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.transactionCard,
+          pressed && styles.transactionCardPressed,
+        ]}
+        onPress={() => handleTransactionPress(item)}
+      >
+        <View style={styles.transactionLeft}>
+          <View
+            style={[
+              styles.iconCircle,
+              isRefund ? styles.refundIcon
+              : item.type === "credit" ? styles.creditIcon : styles.debitIcon,
+            ]}
+          >
+            <Text style={styles.iconText}>
+              {isRefund ? "↩" : item.type === "credit" ? "+" : "-"}
             </Text>
-          )}
+          </View>
+          <View style={styles.transactionInfo}>
+            <Text style={styles.transactionDesc}>{item.description}</Text>
+            <Text style={styles.transactionDate}>{formatDate(item.timestamp)}</Text>
+            {isRefund && (
+              <View style={styles.refundBadge}>
+                <Text style={styles.refundBadgeText}>💸 Voucher Expired — Amount Refunded</Text>
+              </View>
+            )}
+            {!isRefund && item.status && (
+              <Text
+                style={[
+                  styles.status,
+                  item.status === "synced" && item.voucherData?.used ? styles.statusSynced
+                  : item.status === "synced" ? styles.statusBacked
+                  : styles.statusPending,
+                ]}
+              >
+                {item.status === "synced" && item.voucherData?.used
+                  ? "✅ Payment Confirmed"
+                  : item.status === "synced"
+                  ? "💾 Backed up — show QR to merchant"
+                  : "⏳ Offline — show QR to merchant"}
+              </Text>
+            )}
+          </View>
         </View>
-      </View>
-      <View style={styles.transactionRight}>
-        <Text
-          style={[
-            styles.transactionAmount,
-            item.type === "credit" ? styles.creditAmount : styles.debitAmount,
-          ]}
-        >
-          {item.type === "credit" ? "+" : "-"}₹{item.amount}
-        </Text>
-        <Text style={styles.tapHint}>Tap for details</Text>
-      </View>
-    </Pressable>
-  );
+        <View style={styles.transactionRight}>
+          <Text
+            style={[
+              styles.transactionAmount,
+              item.type === "credit" ? styles.creditAmount : styles.debitAmount,
+            ]}
+          >
+            {item.type === "credit" ? "+" : "-"}₹{item.amount}
+          </Text>
+          <Text style={styles.tapHint}>Tap for details</Text>
+        </View>
+      </Pressable>
+    );
+  };
 
   // ── Voucher card (expandable with QR) ───────────────────────────────────
   const renderVoucher = (v: GeneratedVoucher) => {
@@ -353,9 +363,19 @@ export default function UserHistoryScreen() {
             </View>
           </View>
           <View style={styles.voucherHeaderRight}>
-            <View style={[styles.voucherBadge, v.used ? styles.badgeUsed : styles.badgePending]}>
-              <Text style={[styles.voucherBadgeText, v.used ? styles.badgeTextUsed : styles.badgeTextPending]}>
-                {v.used ? "✅ Used" : "⏳ Pending"}
+            <View style={[
+              styles.voucherBadge,
+              (v as any).expired ? styles.badgeExpired
+              : v.used ? styles.badgeUsed
+              : styles.badgePending
+            ]}>
+              <Text style={[
+                styles.voucherBadgeText,
+                (v as any).expired ? styles.badgeTextExpired
+                : v.used ? styles.badgeTextUsed
+                : styles.badgeTextPending
+              ]}>
+                {(v as any).expired ? "↩ Refunded" : v.used ? "✅ Used" : "⏳ Pending"}
               </Text>
             </View>
             <Text style={styles.expandArrow}>{isExpanded ? "▲" : "▼"}</Text>
@@ -423,14 +443,32 @@ export default function UserHistoryScreen() {
               </View>
               <View style={styles.voucherDetailRow}>
                 <Text style={styles.voucherDetailLabel}>Status</Text>
-                <Text style={[styles.voucherDetailValue, v.used ? styles.textUsed : styles.textPending]}>
-                  {v.used ? "✅ Merchant received payment" : "⏳ Not yet scanned by merchant"}
+                <Text style={[styles.voucherDetailValue,
+                  (v as any).expired ? styles.textExpired
+                  : v.used ? styles.textUsed : styles.textPending
+                ]}>
+                  {(v as any).expired
+                    ? "↩ Expired — amount refunded to wallet"
+                    : v.used ? "✅ Merchant received payment"
+                    : "⏳ Not yet scanned by merchant"}
                 </Text>
               </View>
               <View style={styles.voucherDetailRow}>
                 <Text style={styles.voucherDetailLabel}>Created</Text>
                 <Text style={styles.voucherDetailValue}>{formatDate(v.createdAt)}</Text>
               </View>
+              {(v as any).expiresAt && (
+                <View style={styles.voucherDetailRow}>
+                  <Text style={styles.voucherDetailLabel}>
+                    {(v as any).expired ? "Expired on" : "Expires"}
+                  </Text>
+                  <Text style={[styles.voucherDetailValue,
+                    (v as any).expired ? styles.textExpired : { color: '#d97706' }
+                  ]}>
+                    {formatDate((v as any).expiresAt)}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -700,6 +738,7 @@ const styles = StyleSheet.create({
   },
   creditIcon: { backgroundColor: "#dcfce7" },
   debitIcon: { backgroundColor: "#fee2e2" },
+  refundIcon: { backgroundColor: "#e0e7ff" },
   iconText: { fontSize: 20, fontWeight: "700" },
   transactionInfo: { flex: 1 },
   transactionDesc: {
@@ -709,7 +748,16 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   transactionDate: { fontSize: 12, color: "#6b7280" },
-  status: { fontSize: 11, marginTop: 4, textTransform: "uppercase" },
+  refundBadge: {
+    marginTop: 4,
+    backgroundColor: "#e0e7ff",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    alignSelf: "flex-start" as const,
+  },
+  refundBadgeText: { fontSize: 11, color: "#3730a3", fontWeight: "700" },
+  status: { fontSize: 11, marginTop: 4, textTransform: "uppercase" as const },
   statusSynced: { color: "#16a34a" },
   statusBacked: { color: "#2563eb" },
   statusPending: { color: "#f59e0b" },
@@ -757,9 +805,11 @@ const styles = StyleSheet.create({
   voucherBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeUsed: { backgroundColor: "#d1fae5" },
   badgePending: { backgroundColor: "#fef3c7" },
+  badgeExpired: { backgroundColor: "#fce7f3" },
   voucherBadgeText: { fontSize: 12, fontWeight: "700" },
   badgeTextUsed: { color: "#065f46" },
   badgeTextPending: { color: "#92400e" },
+  badgeTextExpired: { color: "#9d174d" },
   expandArrow: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
   // ── Voucher expanded ──
   voucherExpanded: {
@@ -815,6 +865,7 @@ const styles = StyleSheet.create({
   voucherAmountBig: { fontSize: 16, color: "#4f46e5", fontWeight: "800" },
   textUsed: { color: "#065f46" },
   textPending: { color: "#92400e" },
+  textExpired: { color: "#9d174d" },
   // ── Voucher action buttons ──
   voucherActionRow: {
     flexDirection: "row",

@@ -1423,16 +1423,28 @@ app.get("/api/transactions/user", authMiddleware, async (req, res) => {
     // previous partial dedup failed for pre-fix transactions).
     if (user.balanceHistory && Array.isArray(user.balanceHistory)) {
       user.balanceHistory.forEach(h => {
-        if (h.type !== 'add') return; // skip all payment/deduction entries
-        transactions.push({
-          id: `bal_${h.timestamp}`,
-          type: 'credit',
-          category: 'wallet_load',
-          amount: h.amount,
-          description: 'Added to wallet',
-          timestamp: h.timestamp,
-          balance: h.newBalance
-        });
+        if (h.type === 'add') {
+          transactions.push({
+            id: `bal_${h.timestamp}`,
+            type: 'credit',
+            category: 'wallet_load',
+            amount: h.amount,
+            description: 'Added to wallet',
+            timestamp: h.timestamp,
+            balance: h.newBalance
+          });
+        } else if (h.type === 'refund') {
+          transactions.push({
+            id: `refund_${h.voucherId || h.timestamp}`,
+            type: 'credit',
+            category: 'voucher_refund',
+            amount: h.amount,
+            description: `Voucher expired — ₹${h.amount} refunded`,
+            timestamp: h.timestamp,
+            balance: h.newBalance,
+            voucherId: h.voucherId || null
+          });
+        }
       });
     }
 
