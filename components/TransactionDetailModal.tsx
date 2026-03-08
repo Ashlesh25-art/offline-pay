@@ -14,7 +14,6 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 
 type TransactionDetailProps = {
@@ -147,13 +146,10 @@ export default function TransactionDetailModal({
       setPdfLoading(true);
       const html = buildReceiptHTML();
       const { uri } = await Print.printToFileAsync({ html, base64: false });
-      const fileName = `receipt_${transaction.id || Date.now()}.pdf`;
-      const dest = `${FileSystem.documentDirectory}${fileName}`;
-      await FileSystem.copyAsync({ from: uri, to: dest });
 
       // Try sharing first — works on both iOS and Android
       try {
-        await Sharing.shareAsync(dest, {
+        await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
           dialogTitle: 'Save or Share Receipt PDF',
           UTI: 'com.adobe.pdf',
@@ -167,13 +163,13 @@ export default function TransactionDetailModal({
       if (Platform.OS === 'android') {
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {
-          await MediaLibrary.saveToLibraryAsync(dest);
+          await MediaLibrary.saveToLibraryAsync(uri);
           Alert.alert('Saved', 'Receipt PDF saved to your Downloads folder.');
         } else {
-          Alert.alert('Saved', `PDF saved to app storage:\n${dest}`);
+          Alert.alert('Saved', 'Could not save PDF. Please try sharing instead.');
         }
       } else {
-        Alert.alert('Saved', `PDF saved to:\n${dest}`);
+        Alert.alert('Saved', 'PDF generated but could not be saved on this device.');
       }
     } catch (e: any) {
       Alert.alert('Error', 'Could not generate PDF: ' + (e?.message || String(e)));
@@ -305,7 +301,7 @@ export default function TransactionDetailModal({
               </Text>
               {!transaction.voucherData.used && (
                 <Text style={styles.qrSubtitle}>
-                  Show this to the merchant if they haven't scanned it yet
+                  Show this to the merchant if they have not scanned it yet
                 </Text>
               )}
               <View style={styles.qrCenter}>
