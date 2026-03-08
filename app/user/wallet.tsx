@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import { API_BASE_URL, saveLocalBalance, getLocalBalance, syncOfflineTransactions } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, syncOfflineTransactions, refundExpiredVouchers } from "../../lib/api";
 import { ensureUserKeypairAndId } from "../../lib/cryptoKeys";
 import { registerPublicKeyIfNeeded } from "../../lib/registerKey";
 
@@ -61,6 +61,9 @@ export default function UserWalletScreen() {
       setLoadingBalance(true);
       const token = await AsyncStorage.getItem("@auth_token");
       if (!token) { setBalance(0); setLoadingBalance(false); return; }
+
+      // Refund any expired vouchers first — updates local + backend balance
+      await refundExpiredVouchers(token).catch(() => 0);
 
       const response = await fetch(`${API_BASE_URL}/api/balance`, {
         method: "GET",
