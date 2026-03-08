@@ -15,7 +15,7 @@ import QRCode from "react-native-qrcode-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { getUserId, signPayloadHex, ensureUserKeypairAndId, getPublicKeyHex } from "../../lib/cryptoKeys";
-import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction, saveGeneratedVoucher, getGeneratedVouchers, syncOfflineTransactions, GeneratedVoucher } from "../../lib/api";
+import { API_BASE_URL, saveLocalBalance, getLocalBalance, deductLocalBalance, queueOfflineTransaction, saveGeneratedVoucher, getGeneratedVouchers, syncOfflineTransactions, GeneratedVoucher, VOUCHER_EXPIRY_DAYS, isVoucherExpired, refundExpiredVouchers } from "../../lib/api";
 
 type MerchantInfo = {
   merchantId: string;
@@ -51,6 +51,9 @@ export default function UserPayScreen() {
   useEffect(() => {
     (async () => {
       await ensureUserKeypairAndId();
+      // Refund any expired vouchers first, then refresh the list
+      const token = await AsyncStorage.getItem('@auth_token');
+      await refundExpiredVouchers(token);
       // Load any vouchers user generated but hasn't shown to a merchant yet
       const all = await getGeneratedVouchers();
       setUnusedVouchers(all.filter((v) => !v.used));
@@ -251,12 +254,14 @@ export default function UserPayScreen() {
       setError(null);
 
       // Save so user can show this QR again if merchant hasn't scanned it yet
+      const expiresAt = new Date(Date.now() + VOUCHER_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
       await saveGeneratedVoucher({
         voucherId: newVoucher.voucherId,
         merchantId: newVoucher.merchantId,
         merchantName: merchant?.name,
         amount: newVoucher.amount,
         createdAt: newVoucher.createdAt,
+        expiresAt,
         issuedTo: newVoucher.issuedTo,
         signature: newVoucher.signature,
         publicKeyHex: newVoucher.publicKeyHex ?? '',
@@ -310,21 +315,53 @@ export default function UserPayScreen() {
             <Text style={styles.unusedSub}>
               These were generated but the merchant hasn't scanned them yet. Tap to show the QR again.
             </Text>
-            {unusedVouchers.map((v) => (
-              <Pressable key={v.voucherId} style={styles.unusedRow} onPress={() => setShowingVoucher(v)}>
-                <View style={styles.unusedInfo}>
-                  <Text style={styles.unusedAmount}>₹{v.amount}</Text>
-                  <Text style={styles.unusedMerchant}>{v.merchantName || v.merchantId}</Text>
-                  <Text style={styles.unusedDate}>
-                    {new Date(v.createdAt).toLocaleString('en-IN', {
-                      day: 'numeric', month: 'short',
-                      hour: '2-digit', minute: '2-digit',
-                    })}
-                  </Text>
-                </View>
-                <Text style={styles.unusedTap}>Show QR →</Text>
-              </Pressable>
-            ))}
+            {unusedVouchers.map((v) => {
+              const expired = isVoucherExpired(v);
+              const expiryDate = v.expiresAt
+                ? new Date(v.expiresAt).toLocaleString('en-IN', {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })
+                : null;
+              const daysLeft = v.expiresAt
+                ? Math.max(0, Math.ceil((new Date(v.expiresAt).getTime() - Date.now()) / 86400000))
+                : null;
+              return (
+                <Pressable
+                  key={v.voucherId}
+                  style={[styles.unusedRow, expired && styles.unusedRowExpired]}
+                  onPress={() => !expired && setShowingVoucher(v)}
+                  disabled={expired}
+                >
+                  <View style={styles.unusedInfo}>
+                    <Text style={[styles.unusedAmount, expired && styles.unusedAmountExpired]}>
+                      ₹{v.amount}
+                    </Text>
+                    <Text style={styles.unusedMerchant}>{v.merchantName || v.merchantId}</Text>
+                    <Text style={styles.unusedDate}>
+                      Created: {new Date(v.createdAt).toLocaleString('en-IN', {
+                        day: 'numeric', month: 'short',
+                        hour: '2-digit', minute: '2-digit',
+                      })}
+                    </Text>
+                    {expiryDate && !expired && (
+                      <View style={[styles.expiryBadge, daysLeft !== null && daysLeft <= 1 && styles.expiryBadgeUrgent]}>
+                        <Text style={[styles.expiryBadgeText, daysLeft !== null && daysLeft <= 1 && styles.expiryBadgeTextUrgent]}>
+                          ⏳ Expires {expiryDate}
+                          {daysLeft === 0 ? ' (today!)' : daysLeft === 1 ? ' (tomorrow)' : ` (${daysLeft}d left)`}
+                        </Text>
+                      </View>
+                    )}
+                    {expired && (
+                      <View style={styles.expiredBadge}>
+                        <Text style={styles.expiredBadgeText}>● EXPIRED — amount refunded to wallet</Text>
+                      </View>
+                    )}
+                  </View>
+                  {!expired && <Text style={styles.unusedTap}>Show QR →</Text>}
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
@@ -365,6 +402,14 @@ export default function UserPayScreen() {
                   {new Date(showingVoucher.createdAt).toLocaleString('en-IN')}
                 </Text>
               </View>
+              {showingVoucher.expiresAt && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Expires</Text>
+                  <Text style={[styles.detailValueSmall, { color: '#d97706' }]}>
+                    {new Date(showingVoucher.expiresAt).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              )}
             </View>
             <Pressable style={styles.secondaryButton} onPress={() => setShowingVoucher(null)}>
               <Text style={styles.secondaryButtonText}>← Back</Text>
@@ -952,5 +997,47 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#667eea',
+  },
+  // ── Expiry styles ──
+  expiryBadge: {
+    marginTop: 4,
+    backgroundColor: '#fef3c7',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  expiryBadgeUrgent: {
+    backgroundColor: '#fed7aa',
+  },
+  expiryBadgeText: {
+    fontSize: 11,
+    color: '#92400e',
+    fontWeight: '600',
+  },
+  expiryBadgeTextUrgent: {
+    color: '#c2410c',
+  },
+  expiredBadge: {
+    marginTop: 4,
+    backgroundColor: '#fecaca',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  expiredBadgeText: {
+    fontSize: 11,
+    color: '#991b1b',
+    fontWeight: '700',
+  },
+  unusedRowExpired: {
+    opacity: 0.6,
+    borderColor: '#fca5a5',
+    backgroundColor: '#fff5f5',
+  },
+  unusedAmountExpired: {
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
 });

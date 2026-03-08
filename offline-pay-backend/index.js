@@ -904,9 +904,17 @@ app.post("/api/vouchers/sync", async (req, res) => {
         ...payload,
         signature: v.signature,
         merchantId,
+        expiresAt: v.expiresAt || null,
         status: "synced",
         syncedAt: new Date().toISOString(),
       });
+
+      // Check if voucher has expired — reject if so
+      if (v.expiresAt && new Date() > new Date(v.expiresAt)) {
+        rejected.push({ voucherId: v.voucherId, reason: "Voucher expired" });
+        await vouchersCollection.deleteOne({ voucherId: v.voucherId });
+        continue;
+      }
 
       // Deduct user balance when voucher is synced for the first time
       // This is the authoritative balance check — local AsyncStorage can be tampered on rooted devices
@@ -1311,6 +1319,76 @@ app.post("/api/balance/deduct", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Deduct balance error:", error);
     res.status(500).json({ error: "Failed to process payment" });
+  }
+});
+
+/**
+ * POST /api/vouchers/refund-expired
+ * Called by the app when a locally-stored voucher passes its expiresAt without
+ * being scanned by a merchant.  If the voucher was never synced to the backend
+ * (i.e. it was deducted offline and the merchant never redeemed it), the user's
+ * balance is restored.
+ *
+ * Body: { voucherId: string, amount: number }
+ */
+app.post("/api/vouchers/refund-expired", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { voucherId, amount } = req.body;
+
+    if (!voucherId || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ error: "Invalid request body" });
+    }
+
+    const db = getDB();
+    const vouchersCollection = db.collection('vouchers');
+    const usersCollection = db.collection('users');
+
+    // Only refund if the voucher was NEVER synced by the merchant
+    const existing = await vouchersCollection.findOne({ voucherId });
+    if (existing) {
+      // Merchant already redeemed it — no refund
+      return res.json({ success: false, reason: "Voucher already redeemed by merchant" });
+    }
+
+    // Idempotency: check if we already refunded this voucher
+    const user = await usersCollection.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const alreadyRefunded = (user.balanceHistory || []).some(
+      (h) => h.voucherId === voucherId && h.type === 'refund'
+    );
+    if (alreadyRefunded) {
+      return res.json({ success: true, balance: user.balance || 0, reason: "Already refunded" });
+    }
+
+    // Apply refund
+    const newBalance = (user.balance || 0) + amount;
+    await usersCollection.updateOne(
+      { userId },
+      {
+        $set: { balance: newBalance },
+        $push: {
+          balanceHistory: {
+            type: 'refund',
+            amount,
+            timestamp: new Date().toISOString(),
+            previousBalance: user.balance || 0,
+            newBalance,
+            voucherId,
+            reason: 'voucher_expired',
+          },
+        },
+      }
+    );
+
+    console.log(`🔄 Expired voucher refund: user ${userId} +₹${amount} → ₹${newBalance} (voucher: ${voucherId})`);
+
+    res.json({ success: true, balance: newBalance, amount });
+  } catch (error) {
+    console.error("Refund expired voucher error:", error);
+    res.status(500).json({ error: "Failed to process refund" });
   }
 });
 

@@ -48,7 +48,7 @@ export async function getLocalBalance(): Promise<number | null> {
   return val !== null ? Number(val) : null;
 }
 
-/** Deduct an amount from the locally cached balance. Safe to call offline. */
+/** Deduct an amount from the locally cached balance. Pass a negative amount to credit. */
 export async function deductLocalBalance(amount: number): Promise<number> {
   const current = (await getLocalBalance()) ?? 0;
   const next = Math.max(0, current - amount);
@@ -57,17 +57,83 @@ export async function deductLocalBalance(amount: number): Promise<number> {
 }
 
 // ─── Generated vouchers (user-side) ─────────────────────────────────────────
+/** Vouchers expire after this many days if the merchant hasn't scanned them. */
+export const VOUCHER_EXPIRY_DAYS = 7;
+
 export type GeneratedVoucher = {
   voucherId: string;
   merchantId: string;
   merchantName?: string;
   amount: number;
   createdAt: string;
+  expiresAt: string;   // ISO string — createdAt + VOUCHER_EXPIRY_DAYS days
   issuedTo: string;
   signature: string;
   publicKeyHex: string;
-  used: boolean;       // true once merchant confirms scan
+  used: boolean;       // true once merchant confirms scan OR voucher expired
+  expired?: boolean;   // true when voucher expired and money was refunded
 };
+
+/** Returns true when the voucher is past its expiry and was never used. */
+export function isVoucherExpired(v: GeneratedVoucher): boolean {
+  if (v.used) return false;
+  if (!v.expiresAt) return false;
+  return new Date() > new Date(v.expiresAt);
+}
+
+/**
+ * Check all locally-stored unused vouchers.  Any that have passed their
+ * expiresAt are refunded: balance is added back locally (and synced to the
+ * backend when online).  Returns the total amount refunded.
+ */
+export async function refundExpiredVouchers(token: string | null): Promise<number> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.GENERATED_VOUCHERS);
+  if (!raw) return 0;
+
+  const list: GeneratedVoucher[] = JSON.parse(raw);
+  let totalRefunded = 0;
+
+  const updated = await Promise.all(
+    list.map(async (v) => {
+      if (!v.used && !v.expired && isVoucherExpired(v)) {
+        // Refund locally first — works offline too
+        await deductLocalBalance(-v.amount); // negative deduct = credit
+
+        // Try to notify backend so server-side balance is updated
+        if (token) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            await fetch(`${API_BASE_URL}/api/vouchers/refund-expired`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                voucherId: v.voucherId,
+                amount: v.amount,
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+          } catch {
+            // Offline — local refund already applied; backend will reconcile on next sync
+          }
+        }
+
+        totalRefunded += v.amount;
+        return { ...v, used: true, expired: true };
+      }
+      return v;
+    })
+  );
+
+  if (totalRefunded > 0) {
+    await AsyncStorage.setItem(STORAGE_KEYS.GENERATED_VOUCHERS, JSON.stringify(updated));
+  }
+  return totalRefunded;
+}
 
 /** Save a newly generated voucher so the user can show it again if needed. */
 export async function saveGeneratedVoucher(v: GeneratedVoucher): Promise<void> {

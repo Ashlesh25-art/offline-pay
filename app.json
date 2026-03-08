@@ -32,7 +32,9 @@
         "CAMERA",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "plugins": [
@@ -44,6 +46,14 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Offline Pay to save receipts to your Downloads folder.",
+          "savePhotosPermission": "Allow Offline Pay to save receipt PDFs.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
       [
         "expo-notifications",
         {

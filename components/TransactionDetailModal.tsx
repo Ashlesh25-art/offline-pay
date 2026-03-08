@@ -9,11 +9,13 @@ import {
   Share,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 type TransactionDetailProps = {
   visible: boolean;
@@ -93,6 +95,7 @@ export default function TransactionDetailModal({
       ['Transaction ID', transaction.id || '—'],
       transaction.payerName ? [userType === 'merchant' ? 'Payer' : 'Recipient', transaction.payerName] : null,
       transaction.merchantId ? ['Merchant ID', transaction.merchantId] : null,
+      transaction.expiresAt ? ['Voucher Expires', formatDate(transaction.expiresAt)] : null,
     ].filter(Boolean) as [string, string][];
 
     const rowsHTML = rows.map(([label, value]) =>
@@ -147,15 +150,30 @@ export default function TransactionDetailModal({
       const fileName = `receipt_${transaction.id || Date.now()}.pdf`;
       const dest = `${FileSystem.documentDirectory}${fileName}`;
       await FileSystem.copyAsync({ from: uri, to: dest });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
+
+      // Try sharing first — works on both iOS and Android
+      try {
         await Sharing.shareAsync(dest, {
           mimeType: 'application/pdf',
           dialogTitle: 'Save or Share Receipt PDF',
           UTI: 'com.adobe.pdf',
         });
+        return;
+      } catch {
+        // Sharing not available — fall through to MediaLibrary save
+      }
+
+      // Fallback: save to device Downloads via MediaLibrary (Android)
+      if (Platform.OS === 'android') {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          await MediaLibrary.saveToLibraryAsync(dest);
+          Alert.alert('Saved', 'Receipt PDF saved to your Downloads folder.');
+        } else {
+          Alert.alert('Saved', `PDF saved to app storage:\n${dest}`);
+        }
       } else {
-        Alert.alert('Saved', `PDF saved to: ${dest}`);
+        Alert.alert('Saved', `PDF saved to:\n${dest}`);
       }
     } catch (e: any) {
       Alert.alert('Error', 'Could not generate PDF: ' + (e?.message || String(e)));
