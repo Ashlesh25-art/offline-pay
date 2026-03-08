@@ -409,12 +409,57 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center" as const,
+  },
+  securityCard: {
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+  },
+  securityTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  securityRow: {
+    flexDirection: "row" as const,
+    justifyContent: "space-between" as const,
+    alignItems: "center" as const,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  securityLabel: {
+    fontSize: 14,
+    color: "#6b7280",
+    fontWeight: "500",
+  },
+  securityBadge: {
+    backgroundColor: "#ede9fe",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  securityBadgeText: {
+    fontSize: 12,
+    color: "#4f46e5",
+    fontWeight: "600",
+  },
   logoutButton: {
     marginTop: 30,
     paddingVertical: 16,
     borderRadius: 12,
     backgroundColor: "#fee2e2",
-    alignItems: "center",
+    alignItems: "center" as const,
+  },
+  logoutPressed: {
+    opacity: 0.75,
   },
   logoutText: {
     color: "#dc2626",

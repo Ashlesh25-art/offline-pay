@@ -902,42 +902,6 @@ const styles = StyleSheet.create({
     width: "80%",
   },
   buttonText: { color: "#fff", fontWeight: "600" as const, fontSize: 15 },
-  errorText: { marginTop: 6, color: "#ef4444", fontSize: 12 },
-  qrWrapper: {
-    marginVertical: 16,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#f3f4f6",
-  },
-  cameraContainer: {
-    width: "100%",
-    height: 400,
-    position: "relative" as const,
-    borderRadius: 12,
-    overflow: "hidden" as const,
-    marginTop: 12,
-  },
-  camera: {
-    width: "100%",
-    height: "100%",
-  },
-  overlay: {
-    position: "absolute" as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center" as const,
-    alignItems: "center" as const,
-  },
-  scanFrame: {
-    width: 250,
-    height: 250,
-    borderWidth: 2,
-    borderColor: "#fff",
-    borderRadius: 12,
-    backgroundColor: "transparent",
-  },
   // ── Unused voucher card ──
   unusedTitle: {
     fontSize: 16,
